@@ -1,5 +1,6 @@
 {
   "name": "esbuild-plugin-ghpages-pwa",
+  "private": true,
   "version": "1.0.0",
   "description": "GitHub pages PWA static site generator",
   "main": "index.js",
@@ -7,7 +8,8 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
-    "esbuild"
+    "esbuild",
+    "plugin"
   ],
   "type": "module",
   "author": "",

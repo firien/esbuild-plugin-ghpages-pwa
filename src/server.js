@@ -1,96 +1,88 @@
-import * as fs from 'fs';
 import { join } from 'path';
 import { createServer } from 'http';
 import { parse } from 'url';
-import { parseMessage, constructReply, generateAcceptValue } from './web-socket.js';
+import { Buffer } from 'buffer'
+import { upgrade, constructReply } from './web-socket.js';
+import reloader from './reloader.js';
 
-export default (dir) => {
+// holds in memory esbuild files to serve
+let memoryFiles;
+
+const getMime = (filePath) => {
+  let mime;
+  if ((/js$/).test(filePath)) {
+    mime = 'text/javascript'
+  } else if  ((/html$/).test(filePath)) {
+    mime = 'text/html'
+  } else if  ((/css$/).test(filePath)) {
+    mime = 'text/css'
+  } else if  ((/svg$/).test(filePath)) {
+    mime = 'image/svg+xml'
+  } else if  ((/ttf$/).test(filePath)) {
+    mime = 'application/x-font-ttf'
+  } else if  ((/webmanifest$/).test(filePath)) {
+    mime = 'application/manifest+json'
+  } else if  ((/json$/).test(filePath)) {
+    mime = 'application/json'
+  } else if  ((/pdf$/).test(filePath)) {
+    mime = 'application/pdf'
+  } else if  ((/map$/).test(filePath)) {
+    mime = 'application/json'
+  } else {
+    mime = 'text/plain'
+  }
+  return mime;
+}
+
+let sockets = []
+
+export const makeServer = (dir) => {
   let server = createServer((request, response) => {
     let uri = parse(request.url).pathname
+    // if (uri.)
     //serve docs, like github
-    let filePath = join(process.cwd(), 'docs', uri.replace(`/${dir}`, ''))
-    if (fs.existsSync(filePath)) {
-      if (fs.statSync(filePath).isDirectory()) {
-        filePath = join(filePath, "index.html")
-        let stat = fs.statSync(filePath)
-        response.writeHead(200, {
-          'Content-Type': "text/html",
-          'Content-Length': stat.size
-        })
-        let readStream = fs.createReadStream(filePath);
-        readStream.pipe(response);
-      } else {
-        let stat = fs.statSync(filePath)
-        let mime;
-        if ((/js$/).test(filePath)) {
-          mime = "text/javascript"
-        } else if  ((/html$/).test(filePath)) {
-          mime = "text/html"
-        } else if  ((/css$/).test(filePath)) {
-          mime = "text/css"
-        } else if  ((/svg$/).test(filePath)) {
-          mime = "image/svg+xml"
-        } else if  ((/ttf$/).test(filePath)) {
-          mime = "application/x-font-ttf"
-        } else if  ((/webmanifest$/).test(filePath)) {
-          mime = "application/manifest+json"
-        } else if  ((/json$/).test(filePath)) {
-          mime = "application/json"
-        } else if  ((/pdf$/).test(filePath)) {
-          mime = "application/pdf"
-        } else {
-          mime = 'text/plain'
-        }
+    let filePath = join(process.cwd(), 'docs', uri.replace(`/${dir}/`, ''))
+    let file = memoryFiles.find(file => file.path === filePath)
+    if (!file) {//assume index
+      filePath = join(filePath, 'index.html')
+    }
+    file = memoryFiles.find(file => file.path === filePath)
+    if (file) {
+      // console.log(`${uri} => ${file.path}`)
+      let mime = getMime(file.path)
+      if (mime === 'text/html') {
+        //inject web socket reload tag
+        let jsCode = reloader.toString()
+        let contents = file.text.replace(/(\s+)<\/head>/, `$1$1<script>(${jsCode}).call()$1$1</script>\n$1</head>`)
+        let buffer = Buffer.from(contents, 'utf8')
         response.writeHead(200, {
           'Content-Type': mime,
-          'Content-Length': stat.size
+          'Content-Length': buffer.length
         })
-        let readStream = fs.createReadStream(filePath);
-        readStream.pipe(response);
+        response.write(buffer)
+      } else {
+        response.writeHead(200, {
+          'Content-Type': mime,
+          'Content-Length': file.contents.length
+        })
+        response.write(file.contents)
       }
+      response.end()
     }
   })
-  server.on('upgrade', (req, socket) => {
-    if (req.headers['upgrade'] !== 'websocket') {
-      socket.end('HTTP/1.1 400 Bad Request');
-      return;
-    }
-    // Read the websocket key provided by the client: 
-    const acceptKey = req.headers['sec-websocket-key']; 
-    // Generate the response value to use in the response: 
-    const hash = generateAcceptValue(acceptKey); 
-    // Write the HTTP response into an array of response lines: 
-    const responseHeaders = [ 'HTTP/1.1 101 Web Socket Protocol Handshake', 'Upgrade: WebSocket', 'Connection: Upgrade', `Sec-WebSocket-Accept: ${hash}` ]; 
-    // Read the subprotocol from the client request headers:
-    const protocol = req.headers['sec-websocket-protocol'];
-    // If provided, they'll be formatted as a comma-delimited string of protocol
-    // names that the client supports; we'll need to parse the header value, if
-    // provided, and see what options the client is offering:
-    const protocols = !protocol ? [] : protocol.split(',').map(s => s.trim());
-    // To keep it simple, we'll just see if JSON was an option, and if so, include
-    // it in the HTTP response:
-    if (protocols.includes('json')) {
-      // Tell the client that we agree to communicate with JSON data
-      responseHeaders.push(`Sec-WebSocket-Protocol: json`);
-    }
-    // Write the response back to the client socket, being sure to append two 
-    // additional newlines so that the browser recognises the end of the response 
-    // header and doesn't continue to wait for more header data: 
-    socket.write(responseHeaders.join('\r\n') + '\r\n\r\n');
-    socket.on('data', (buffer) => {
-      const message = parseMessage(buffer);
-      if (message) {
-        // For our convenience, so we can see what the client sent
-        console.log(message);
-        // We'll just send a hardcoded message in this example 
-        socket.write(constructReply({ message: 'Hello from the server!' })); 
-      } else if (message === null) { 
-        // console.log('WebSocket connection closed by the client.'); 
+  server.on('gh.esbuild', (data) => {
+    memoryFiles = data
+    for (let socket of sockets) {
+      try {
+        socket.write(constructReply({ message: 'reload' }));
+      } catch (err) {
+        //dead socket?
       }
-    });
-    server.on('esbuild', () => {
-      socket.write(constructReply({ message: 'reload' })); 
-    });
+    }
+  });
+  server.on('upgrade', (req, socket) => {
+    upgrade(req, socket)
+    sockets.push(socket)
   });
   return server
 }

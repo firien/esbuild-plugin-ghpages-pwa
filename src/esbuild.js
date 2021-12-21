@@ -5,8 +5,8 @@ import { fileURLToPath } from 'url';
 import pug from 'pug';
 import { createHash } from 'crypto';
 import pngDimensions from './png.js';
-import makeServer from './server.js';
-
+import { makeServer } from './server.js';
+import { Buffer } from 'buffer';
 
 const buildManifest = (files, opts, outdir) => {
   let name = opts.app.replace(/^\w/, c => c.toUpperCase());
@@ -29,13 +29,29 @@ const buildManifest = (files, opts, outdir) => {
   }
 }
 
-const buildView = async (opts, files) => {
+const isProduction = process.env.NODE_ENV === 'production'
+
+// mimic esbuild im-memory outputfile
+const memoryFile = (path, text) => {
+  return {
+    path: join(process.cwd(), path),
+    contents: new Uint8Array(Buffer.from(text, 'utf8')),
+    get text() {
+      return text
+    }
+  }
+}
+
+const buildViews = async function*(opts, files) {
   // =================== start local pug definitions
   const assetPath = function(path) {
     let extName = extname(path);
     let baseName = basename(path, extName);
     let regex = new RegExp(`${baseName}-[A-Z0-9]+\\${extName}(?!\.map)`);
-    let foundAsset = files.find(asset => regex.test(asset))
+    let foundAsset = files.find((asset) => {
+      let name = typeof asset === 'string' ? asset : asset.path
+      return regex.test(name)
+    })
     if (foundAsset) {
       return foundAsset;
     } else {
@@ -43,15 +59,25 @@ const buildView = async (opts, files) => {
     }
   };
   const webAssetPath = (path) => {
-    return assetPath(path).replace(`${opts.outdir}${sep}`, '')
+    let asset = assetPath(path)
+    let name = typeof asset === 'string' ? asset : asset.path
+    name = name.replace(process.cwd(), '')
+    return name.replace(`${opts.outdir}${sep}`, '')
   }
   // include sha256 integrity attribute
   const scriptAttributes = function(path) {
-    let asset = assetPath(path)
-    let source = readFileSync(asset, 'utf8')
+    let asset = assetPath(path);
+    let source, assetName
+    if (asset.path) { //in memory
+      source = asset.contents
+      assetName = asset.path.replace(process.cwd(), '')
+    } else {// a real file
+      source = readFileSync(asset, 'utf8')
+      assetName = asset
+    }
     let sha256 = createHash('sha256').update(source).digest('base64');
     return {
-      src: asset.replace(`${opts.outdir}${sep}`, ''),
+      src: assetName.replace(`${opts.outdir}${sep}`, ''),
       integrity: `sha256-${sha256}`
     };
   };
@@ -60,13 +86,20 @@ const buildView = async (opts, files) => {
     let regex = /icon-.*?\.png/i;
     let links = []
     for (let file of files) {
-      if (regex.test(file)) {
-        let source = readFileSync(file)
+      let name = typeof file === 'string' ? file : file.path
+      if (regex.test(name)) {
+        let source
+        if (file.path) { //in memory
+          source = Buffer.from(file.contents)
+          name = name.replace(process.cwd(), '')
+        } else {
+          source = readFileSync(file)
+        }
         let png = pngDimensions(source);
         links.push({
           rel: 'apple-touch-icon',
           sizes: `${png.width}x${png.height}`,
-          href: file.replace(`${opts.outdir}${sep}`, '')
+          href: name.replace(`${opts.outdir}${sep}`, '')
         })
       }
     }
@@ -90,14 +123,17 @@ const buildView = async (opts, files) => {
       let filePath = resolve('./views', view);
       let html = pug.renderFile(filePath, locals);
       let newFileName = view.replace(/pug$/, 'html');
-      await writeFile(join(opts.outdir, newFileName), html);
+      yield {
+        path: join(opts.outdir, newFileName),
+        content: html
+      }
     }
   }
 }
 
 export default (opts) => {
   let server;
-  if (opts.serve) {
+  if (opts.serve && !isProduction) {
     let port = opts.serve ?? 3000
     server = makeServer(opts.app).listen(port)
     console.log(`http://localhost:${port}/${opts.app}/`)
@@ -106,7 +142,9 @@ export default (opts) => {
     name: 'githubPages',
     setup(build) {
       build.onStart(async () => {
-        await rm(build.initialOptions.outdir, { recursive: true, force: true })
+        if (isProduction) {
+          await rm(build.initialOptions.outdir, { recursive: true, force: true })
+        }
       })
       build.onEnd(async (result) => {
         let files = [];
@@ -114,7 +152,9 @@ export default (opts) => {
         // delete "js" images
         for (let file of Object.keys(result.metafile.outputs)) {
           if ((/images\/.*js.*/).test(file)) {
-            await rm(file)
+            if (isProduction) {
+              await rm(file)
+            }
           } else {
             files.push(file)
           }
@@ -122,7 +162,12 @@ export default (opts) => {
         // build manifest.webmanifest
         let manifest = buildManifest(files, opts, outdir)
         let manifestPath = join(outdir, 'manifest.webmanifest')
-        await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
+        let manifestText = JSON.stringify(manifest, null, 2)
+        if (isProduction) {
+          await writeFile(manifestPath, manifestText);
+        } else {
+          result.outputFiles.push(memoryFile(manifestPath, manifestText))
+        }
         // build service.js
         let service = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'service.js'), 'utf8')
         // REPLACEMENTS
@@ -130,23 +175,51 @@ export default (opts) => {
         let urls = JSON.stringify(appFiles, null, 2);
         service = service.replace('%PREFIX%', opts.app.toUpperCase())
         service = service.replace("['%URLS%']", urls)
-        service = service.replace('%TAG%', opts.cacheTag)        
+        service = service.replace('%TAG%', opts.cacheTag || 1)
         let servicePath = join(outdir, 'service.js')
-        await writeFile(servicePath, service);
-        // build html
-        await buildView(Object.assign({}, opts, { outdir }), files)
-        // copy favicon
-        try {
-          let favicon = 'favicon.ico';
-          await stat(favicon)
-          await copyFile(favicon, join(outdir, favicon))
-        } catch (err) {
-          console.log(err)
+        if (isProduction) {
+          await writeFile(servicePath, service);
+        } else {
+          result.outputFiles.push(memoryFile(servicePath, service))
         }
-        server?.emit('esbuild');
+        // build html
+        let viewOptions = Object.assign({}, opts, { outdir });
+        for await (let file of buildViews(viewOptions, isProduction ? files : result.outputFiles)) {
+          if (isProduction) {
+            await writeFile(file.path, file.content);
+          } else {
+            result.outputFiles.push(memoryFile(file.path, file.content))
+            // console.log(file.content)
+          }
+        }
+        // copy favicon
+        if (isProduction) {
+          try {
+            let favicon = 'favicon.ico';
+            await stat(favicon)
+            await copyFile(favicon, join(outdir, favicon))
+          } catch (err) {
+            console.log(err)
+          }
+        }
+        server?.emit('gh.esbuild', result.outputFiles);
       });
     }
   }
-  return plugin;
+  let buildOptions = {
+    bundle: true,
+    sourcemap: true,
+    entryNames: '[dir]/[name]-[hash]',
+    treeShaking: true,
+    outdir: 'docs',
+    // minify: true, //breaks script integrity check
+    loader: { '.png': 'file' },
+    assetNames: 'images/[name]-[hash]',
+    metafile: true,
+    watch: !isProduction,
+    // ignoreAnnotations: true,
+    write: isProduction,
+  }
+  return { plugin, buildOptions};
 }
 
