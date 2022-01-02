@@ -168,20 +168,6 @@ export default (opts) => {
         } else {
           result.outputFiles.push(memoryFile(manifestPath, manifestText))
         }
-        // build service.js
-        let service = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'service.js'), 'utf8')
-        // REPLACEMENTS
-        let appFiles = files.map(file => file.replace(`${outdir}${sep}`, `${sep}${opts.app}${sep}`))
-        let urls = JSON.stringify(appFiles, null, 2);
-        service = service.replace('%PREFIX%', opts.app.toUpperCase())
-        service = service.replace("['%URLS%']", urls)
-        service = service.replace('%TAG%', opts.cacheTag || 1)
-        let servicePath = join(outdir, 'service.js')
-        if (isProduction) {
-          await writeFile(servicePath, service);
-        } else {
-          result.outputFiles.push(memoryFile(servicePath, service))
-        }
         // build html
         let viewOptions = Object.assign({}, opts, { outdir });
         for await (let file of buildViews(viewOptions, isProduction ? files : result.outputFiles)) {
@@ -191,6 +177,23 @@ export default (opts) => {
             result.outputFiles.push(memoryFile(file.path, file.content))
             // console.log(file.content)
           }
+          files.push(file.path)
+        }
+        // include root
+        files.push(`/${opts.app}/`)
+        // build service.js
+        let service = await readFile(join(dirname(fileURLToPath(import.meta.url)), 'service.js'), 'utf8')
+        // REPLACEMENTS
+        let appFiles = files.map(file => file.replace(`${outdir}${sep}`, `/${opts.app}/`))
+        let urls = JSON.stringify(appFiles, null, 2);
+        service = service.replace('%PREFIX%', opts.app.toUpperCase())
+        service = service.replace("['%URLS%']", urls)
+        service = service.replace('%TAG%', opts.cacheTag || 1)
+        let servicePath = join(outdir, 'service.js')
+        if (isProduction) {
+          await writeFile(servicePath, service);
+        } else {
+          result.outputFiles.push(memoryFile(servicePath, service))
         }
         // copy favicon
         if (isProduction) {
