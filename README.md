@@ -59,12 +59,19 @@ html(lang="en")
     link(rel="manifest", href="manifest.webmanifest")
 ```
 
+## Usage
 
-> node ./build.js
+Install from GitHub
+
+    npm install firien/esbuild-plugin-ghpages-pwa
+
+----
+
+    node ./build.js
 
 In development mode, a local web server serves in memory files created by esbuild. HTML files will have a simple web socket script injected that will auto reload the page when assets are modified on disk. (This is a simple page reload - no fancy HMR)
 
-> NODE_ENV=production node ./build.js
+    NODE_ENV=production node ./build.js
 
 Clears and build `docs/` dir.
 
