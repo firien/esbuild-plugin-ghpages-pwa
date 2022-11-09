@@ -15,7 +15,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "pug": "^3.0.2",
-    "jstransformer-markdown-it": "^2.1.0"
+    "jstransformer-markdown-it": "^3.0.0",
+    "pug": "^3.0.2"
   }
 }
