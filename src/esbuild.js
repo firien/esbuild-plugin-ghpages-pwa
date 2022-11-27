@@ -8,6 +8,8 @@ import pngDimensions from './png.js';
 import { makeServer } from './server.js';
 import { Buffer } from 'buffer';
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
+
 const buildManifest = (files, opts, outdir) => {
   let name = opts.app.replace(/^\w/, c => c.toUpperCase());
   return {
@@ -141,8 +143,14 @@ export default (opts) => {
   let plugin = {
     name: 'githubPages',
     setup(build) {
+      if (isProduction) {
+        build.initialOptions.inject = [join(__dirname, 'pwa.js')]
+      } else {
+        build.initialOptions.inject = [join(__dirname, 'reloader.js')]
+      }
       build.onStart(async () => {
         if (isProduction) {
+          // clear outdir
           await rm(build.initialOptions.outdir, { recursive: true, force: true })
         }
       })
@@ -223,6 +231,6 @@ export default (opts) => {
     // ignoreAnnotations: true,
     write: isProduction,
   }
-  return { plugin, buildOptions};
+  return { plugin, buildOptions };
 }
 

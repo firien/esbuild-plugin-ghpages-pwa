@@ -1,6 +1,6 @@
-// this script will be injected into html files
+// this script will be injected in development environments
 
-export default () => {
+const reloader = () => {
   const ws = new WebSocket(`ws://${location.host}`);
   ws.addEventListener('message', event => {
     let { message } = JSON.parse(event.data);
@@ -9,3 +9,5 @@ export default () => {
     }
   });
 }
+
+reloader()

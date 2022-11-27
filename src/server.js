@@ -1,9 +1,7 @@
 import { join } from 'path';
 import { createServer } from 'http';
 import { parse } from 'url';
-import { Buffer } from 'buffer'
 import { upgrade, constructReply } from './web-socket.js';
-import reloader from './reloader.js';
 
 // holds in memory esbuild files to serve
 let memoryFiles;
@@ -50,23 +48,11 @@ export const makeServer = (dir) => {
     if (file) {
       // console.log(`${uri} => ${file.path}`)
       let mime = getMime(file.path)
-      if (mime === 'text/html') {
-        //inject web socket reload tag
-        let jsCode = reloader.toString()
-        let contents = file.text.replace(/(\s+)<\/head>/, `$1$1<script>(${jsCode}).call()$1$1</script>\n$1</head>`)
-        let buffer = Buffer.from(contents, 'utf8')
-        response.writeHead(200, {
-          'Content-Type': mime,
-          'Content-Length': buffer.length
-        })
-        response.write(buffer)
-      } else {
-        response.writeHead(200, {
-          'Content-Type': mime,
-          'Content-Length': file.contents.length
-        })
-        response.write(file.contents)
-      }
+      response.writeHead(200, {
+        'Content-Type': mime,
+        'Content-Length': file.contents.length
+      })
+      response.write(file.contents)
       response.end()
     }
   })

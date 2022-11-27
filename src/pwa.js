@@ -1,6 +1,9 @@
-export default (dir) => {
+// this script will be injected in production environments
+
+const pwa = () => {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register(`/${dir}/service.js`, {scope: `/${dir}/`}).then((registration) => {
+    let scope = window.location.pathname
+    navigator.serviceWorker.register(`${scope}service.js`, { scope }).then((registration) => {
       const refreshPage = (worker) => {
         if (worker.state != 'activated') {
           worker.postMessage({action: 'skipWaiting'});
@@ -21,3 +24,5 @@ export default (dir) => {
     });
   }
 }
+
+pwa();
