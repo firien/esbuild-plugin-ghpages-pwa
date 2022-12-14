@@ -34,12 +34,12 @@ const getMime = (filePath) => {
 
 let sockets = []
 
-export const makeServer = (dir) => {
+export const makeServer = (dir, fullPath) => {
   let server = createServer((request, response) => {
     let uri = parse(request.url).pathname
-    // if (uri.)
     //serve docs, like github
-    let filePath = join(process.cwd(), 'docs', uri.replace(`/${dir}/`, ''))
+    let filePath = join(fullPath, uri.replace(`/${dir}/`, ''))
+    // console.log(filePath)
     let file = memoryFiles.find(file => file.path === filePath)
     if (!file) {//assume index
       filePath = join(filePath, 'index.html')
@@ -53,8 +53,8 @@ export const makeServer = (dir) => {
         'Content-Length': file.contents.length
       })
       response.write(file.contents)
-      response.end()
     }
+    response.end()
   })
   server.on('gh.esbuild', (data) => {
     memoryFiles = data

@@ -1,5 +1,6 @@
 An [esbuild](https://esbuild.github.io) plugin for small PWA that are hosted on GitHub.
 
+
 Assumes the project is hosted from `main` branch's `docs/` folder. This is not the default option and needs to be [setup](https://help.github.com/articles/configuring-a-publishing-source-for-github-pages) on GitHub.
 
 ### Convention over Configuration
@@ -63,7 +64,7 @@ html(lang="en")
 
 Install from GitHub
 
-    npm install firien/esbuild-plugin-ghpages-pwa
+    npm install -D firien/esbuild-plugin-ghpages-pwa
 
 ----
 
@@ -109,4 +110,69 @@ try {
   console.error(err)
   process.exit(1)
 }
+```
+
+Set Pages source to [`GitHub Actions`](https://github.blog/changelog/2022-07-27-github-pages-custom-github-actions-workflows-beta/)
+
+Configure github pages environment to deploy from specific branches
+
+If you create a new Release tagged v1.0.0 - ensure v*
+
+```yaml
+name: GitHub Pages
+run-name: pages build and deployment
+on:
+  release:
+    types: [ published ]
+# Allow one concurrent deployment
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v3
+      - name: Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - run: npm ci
+      - run: npm run build
+        env:
+          NODE_ENV: production
+      - name: Build artifact
+        run: |
+          tar \
+            --dereference --hard-dereference \
+            --directory docs \
+            -cvf "$RUNNER_TEMP/artifact.tar" \
+            .
+      - name: Upload artifact
+        uses: actions/upload-artifact@main
+        with:
+          name: github-pages
+          path: ${{ runner.temp }}/artifact.tar
+          retention-days: 1
+
+  deploy:
+    # Add a dependency to the build job
+    needs: build
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write      # to deploy to Pages
+      id-token: write   # to verify the deployment originates from an appropriate source
+
+    # Deploy to the github-pages environment
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    # Specify runner + deployment step
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v1
 ```

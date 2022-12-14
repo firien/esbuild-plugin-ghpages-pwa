@@ -5,7 +5,7 @@
   "description": "GitHub pages PWA static site generator",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test-build": "node ./test/site/build.js"
   },
   "bin": {
     "ghpages": "./bin/init.js"
@@ -20,5 +20,9 @@
   "dependencies": {
     "jstransformer-markdown-it": "^3.0.0",
     "pug": "^3.0.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.28.1",
+    "esbuild": "^0.15.16"
   }
 }
