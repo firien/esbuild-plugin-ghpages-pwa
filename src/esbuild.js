@@ -227,10 +227,10 @@ export default (opts) => {
     loader: { '.png': 'file' },
     assetNames: 'images/[name]-[hash]',
     metafile: true,
-    watch: !isProduction,
+    // watch: !isProduction,
     // ignoreAnnotations: true,
     write: isProduction,
   }
-  return { plugin, buildOptions };
+  return { plugin, buildOptions, isProduction };
 }
 
